@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+<style>
+#container { 
+	position: relative; 
+	width: 400px; 
+	height: 400px; 
+	outline: solid 2px; 
+}
+#flocks, #permscreen, #img {
+	position : absolute;
+	left : 0px;
+	top : 0px;
+}
+#loader {
+	width: 400px;
+	height: 400px;
+	z-index: 2;
+	position:absolute;
+	background-color: #ecc;
+	padding-top: 190px;
+	text-align:center;
+	font-size:20px;
+}
+</style>
+</head>
+<body>
+
+<div id='container'>
+<div id='loader'>Loading...</div>
+<canvas id='flocks'></canvas>
+<canvas id='permscreen'></canvas>
+<canvas id='img'></canvas>
+</div>
+
+
+<script type='text/javascript' src='soundmanager2-jsmin.js'></script>
+<script type='text/javascript' src='filereader.js'></script>
+<script type='text/javascript' src='flock.js'></script>
+<script type='text/javascript' src='play.js'></script>
+
+</body>
+</html>

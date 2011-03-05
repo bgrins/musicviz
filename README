@@ -1,0 +1,5 @@
+A port of http://www.nihilogic.dk/labs/canvas_music_visualization/
+
+Makes it easier to use different images by using getImageData instead of having hardcoded image data.  Still a work in progress.
+
+See index.html to get it to run.  In certain browsers, you need to make sure to run it through a web server instead of directly form your file system to avoid permissions errors.

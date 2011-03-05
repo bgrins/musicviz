@@ -1,0 +1,890 @@
+
+<html>
+<head>
+<title>A [ Radiohead / JavaScript / Boids / Canvas / SM2 ] mashup by Jacob Seidelin</title>
+
+<style>
+
+#main {
+	margin : 0 auto;
+}
+#screen {
+	position : absolute;
+	left : 0px;
+	top : 0px;
+}
+
+#permscreen {
+	position : absolute;
+	left : 0px;
+	top : 0px;
+}
+
+
+#inputlayer {
+	position : absolute;
+	width:100%;
+	height:100%;
+}
+
+#thom {
+	opacity : 0;
+	position : absolute;
+	left : 0;
+	top : 0;
+	width : 400px;
+	height : 400px;
+}
+
+#binarycontainer {
+	position : absolute;
+	top : 22px;
+	left : 3px;
+	font-family:Trebuchet MS, Arial;
+	font-size:10px;
+	opacity:0.2;
+}
+
+
+#lyricscontainer {
+	position : absolute;
+	font-family:Trebuchet MS, Arial;
+	font-size:11px;
+	opacity:0.2;
+}
+
+#creditlayer {
+	font-family:Trebuchet MS,Arial;
+	font-size:9px;
+	left:70px;
+	position:absolute;
+	color : #aaa;
+}
+
+#buglayer {
+	font-family:Trebuchet MS,Arial;
+	font-size:12px;
+	left:70px;
+	top : 100px;
+	position:absolute;
+	color : #000;
+	display:none;
+}
+
+#creditlayer a {
+	text-decoration : none;
+	color : #aaa;
+}
+
+#creditlayer a:hover {
+	border-bottom : 1px dashed #aaa;
+}
+
+#loader {
+	position : absolute;
+	width : 360px;
+	height : 10px;
+	border : 1px solid rgb(64,64,64);
+	left : 20px;
+	top : 190px;
+	display : none;
+}
+
+#loaderfill {
+	background-color : rgb(128,128,128);
+	height : 100%;
+	width : 0;
+}
+
+</style>
+
+
+<script src="data.js" type="text/javascript"></script>
+
+<script type="text/javascript" src="soundmanager/script/soundmanager2.js"></script>
+
+<script type="text/javascript">
+
+(function() {
+
+var settings = {
+	drawBinaryValues : true,
+	drawWaveform : true,
+	drawWaveformEcho : true,
+	drawFreqBars : true,
+	drawFreqBarsEcho : true,
+	drawFreqBarsLetters : true,
+	drawBoids : true,
+	drawBoidHeads : true,
+	drawBoidTails : true,
+	drawBoidConnections : true,
+	drawFaceImage : true
+};
+
+var $ = function(id) {return document.getElementById(id);};
+
+var textCanvas;
+var textCanvas2;
+var activeText;
+var letterSize = 40;
+var lastTextTime = 0;
+var minTextTime = 300;
+
+var thomImg;
+var binaryCtr;
+
+var paused = false;
+
+var scatter = false;
+var scatterTime = 0;
+var attract = false;
+var attractTime = 0;
+var lastActionWasScatter = false;
+
+var screenWidth = 400;
+var screenHeight = 400;
+
+var canvas, ctx;
+var permCanvas, permCtx;
+
+var flock;
+var numBoids = 0;
+var maxBoids = 24;
+var lastBoidAddTime = 0;
+var minBoidAddTime = 300;
+
+var boidModes = {
+	AUTO		: 0x0001,
+	ATTRACT		: 0x0002,
+	SCATTER		: 0x0004
+};
+
+var boidMode = boidModes.AUTO;
+
+soundManager.flashVersion = 9;
+soundManager.flash9Options.useEQData = true;
+soundManager.flash9Options.useWaveformData = true;
+soundManager.useHighPerformance = true;
+soundManager.flashLoadTimeout = 3000;
+soundManager.waitForWindowLoad = true;
+soundManager.debugMode = false;
+
+var music;
+var musicLoaded = false;
+
+var numEqBars = 9;
+var eqBarValues;
+var eqBarValuesLast;
+var eqBarInterval = 256 / numEqBars;
+var eqBarWidth = screenWidth/numEqBars - 2;
+var eqBarSpace = (numEqBars+1) / numEqBars * 2;
+
+
+var eqValues16 = [];
+var eqData;
+var waveData;
+var waveDataLast;
+
+var atan2 = Math.atan2;
+var sqrt = Math.sqrt;
+var cos = Math.cos;
+var sin = Math.sin;
+var PI = Math.PI;
+var PI2 = Math.PI * 2;
+var DEG2RAD = Math.PI / 180;
+var random = Math.random;
+
+var lyrics = [
+	[37, 39, "Who's in bunker? Who's in bunker?"],
+	[40, 42, "Women and children first"],
+	[43, 44, "And the children first"],
+	[45, 45, "And the children"],
+	[46, 48, "I'll laugh until my head comes off"],
+	[49, 51, "I'll swallow till I burst"],
+	[52, 52, "Until I burst"],
+	[53, 53, "Until I"],
+
+	[89, 91, "Ice age coming - Ice age coming"],
+	[92, 95, "Let me hear both sides"],
+	[97, 99, "Ice age coming - Ice age coming"],
+	[101, 104, "Throw them on the fire"],
+	[105, 107, "We're not scaremongering"],
+	[108, 111, "This is really happening"],
+	[112, 113, "Happening"],
+	[114, 116, "We're not scaremongering"],
+	[117, 119, "This is really happening"],
+	[120, 121, "Happening"],
+
+	[122, 125, "Mobiles quirking - Mobiles chirping"],
+	[126, 130, "Take the money and run"]
+];
+
+var lyricsCtr;
+var lyricsBySec = [];
+var lyricsOffset = -5;
+
+for (var i=0;i<lyrics.length;i++) {
+	for (var j=lyrics[i][0];j<=lyrics[i][1];j++) {
+		lyricsBySec[j+lyricsOffset] = lyrics[i][2];
+	}
+}
+
+var whilePlaying = function() {
+	boidMode = boidModes.AUTO;
+
+	waveData = this.waveformData;
+	this.waveformData = [];
+	if (waveData.length == 0)
+		$("buglayer").style.display = "block";
+
+
+
+	eqBarValues = [0,0,0,0,0,0,0,0,0];
+	eqValues16 = [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+
+	var b1 = 0, b2 = 0, b3 = 0, b4 = 0;
+	for (var i=0;i<256;i++){
+		if (i < 64)
+			b1 += this.eqData[i];
+		else if (i < 128)
+			b2 += this.eqData[i];
+		else if (i < 192)
+			b3 += this.eqData[i];
+		else
+			b4 += this.eqData[i];
+
+		eqBarValues[(i/eqBarInterval)>>0] += this.eqData[i];
+
+		eqValues16[(i/16)>>0] += this.eqData[i];
+	}
+
+	var now = new Date().getTime()
+
+	if (b3 > 2) {
+		if (now - lastTextTime > minTextTime) {
+			if (random() > 0.7)
+				activeText = null;
+			else
+				activeText = random() < 0.5 ? textCanvas : textCanvas2;
+			lastTextTime = now;
+			ctx.fillStyle = "rgba(200,255,200,0.2)";
+		}
+	}
+
+	if (b4 > 1.5 || b3 > 3) {
+		if (numBoids < maxBoids) {
+			if (now - lastBoidAddTime > minBoidAddTime) {
+
+				flock.addBoid();
+				flock.addBoid();
+				flock.addBoid();
+				numBoids += 3;
+				lastBoidAddTime = now;
+			}
+		} else {
+			if (!attractTime && !scatterTime) {
+				if (lastActionWasScatter) {
+					attract = true;
+
+					ctx.fillStyle = "rgba(255,200,200,0.4)";
+					ctx.fillRect(0,0,screenWidth,screenHeight);
+
+					attractTime = setTimeout(function() {
+						attract = false;
+						attractTime = 0;
+					},300);
+					lastActionWasScatter = false;
+
+				} else {
+					scatter = true;
+
+					ctx.fillStyle = "rgba(200,200,255,0.4)";
+					ctx.fillRect(0,0,screenWidth,screenHeight);
+
+					scatterTime = setTimeout(function() {
+						scatter = false;
+						scatterTime = 0;
+					},300);
+					lastActionWasScatter = true;
+				}
+			} else {
+					ctx.fillStyle = "rgba(200,255,200,0.2)";
+			}
+		}
+	}
+
+	if (scatter) 
+		boidMode = boidModes.SCATTER;
+	else if (attract) 
+		boidMode = boidModes.ATTRACT;
+
+}
+
+soundManager.onload = function() {
+	music = soundManager.createSound(
+		{
+			id:'music',
+			url:'idioteque_live_64kbit.mp3',
+			volume : 100,
+			autoLoad : true,
+			stream : false,
+			autoPlay : true,
+			whileloading : function() {
+				//var prog = this.bytesLoaded / this.bytesTotal;
+				//$("loaderfill").style.width = (prog * 100) + "%";
+
+				$("loader").style.display = "none";
+				musicLoaded = true;
+
+			},
+			onload : function() {
+			},
+			whileplaying : whilePlaying
+		}
+	);
+}
+
+
+function Boid(x, y, velx, vely) {
+	this.position = { x : x, y : y};
+	this.lastPosition = { x : x, y : y};
+	this.target = {x : x, y : y};
+
+	this.nearestOther = null;
+	this.nearestOtherDist = 0;
+
+	this.nearestDraw = null;
+
+	this.cohesionLimit = 200;
+	this.separationLimit = 50;
+	this.alignmentLimit = 100;
+
+	this.cohesionLimit2 = this.cohesionLimit*this.cohesionLimit;
+	this.separationLimit2 = this.separationLimit*this.separationLimit;
+	this.alignmentLimit2 = this.alignmentLimit*this.alignmentLimit;
+
+	this.rotation = random() * PI2;
+
+	this.positionHistory = [];
+
+	this.maxRotation = 5 * DEG2RAD;
+
+	this.fov = 270 * DEG2RAD;
+
+	this.maxSpeed = 10;
+	this.minSpeed = 5;
+	this.speed = this.minSpeed;
+
+	this.velocity = { 
+		x : cos(this.rotation) * this.speed, 
+		y : sin(this.rotation) * this.speed
+	};
+
+	this.react = function(boids) {
+		var numCohesion = 0;
+		var numSeparation = 0;
+		var numAlignment = 0;
+
+		var aveX = 0;
+		var aveY = 0;
+		var sepX = 0;
+		var sepY = 0;
+		var aliX = 0;
+		var aliY = 0;
+
+		this.nearestOtherDist = Number.MAX_VALUE;
+
+		for (i=0,l=boids.length;i<l;i++) {
+			var other = boids[i];
+
+			// don't react to self
+			if (this === other) 
+				continue;
+
+			var dx = other.position.x - this.position.x;
+			var dy = other.position.y - this.position.y;
+
+			var dist2 = dx*dx+dy*dy;
+
+			if (dist2 < this.nearestOtherDist) {
+				this.nearestOtherDist = dx*dx+dy*dy;
+				this.nearestOther = other;
+			}
+
+			this.nearestDraw = null;
+
+			// is within view?
+			var angle = atan2(dy, dx) - other.rotation;
+			if (angle < -PI*0.75 || angle > PI*0.75)
+				continue;
+
+			// cohesion
+			if (dist2 < this.cohesionLimit2) {
+				aveX += other.position.x;
+				aveY += other.position.y;
+				numCohesion++;
+			}
+
+			// separation
+			if (dist2 < this.separationLimit2) {
+				sepX -= dx;
+				sepY -= dy;
+				numSeparation++;
+			}
+
+			// alignment
+			if (dist2 < this.alignmentLimit2) {
+				aliX += other.velocity.x;
+				aliY += other.velocity.y;
+				numAlignment++;
+			}
+
+		}
+
+		var velCoh = {
+			x : numCohesion == 0 ? 0 : aveX / numCohesion - this.position.x,
+			y : numCohesion == 0 ? 0 : aveY / numCohesion - this.position.y
+		};
+
+		var velSep = {
+			x : sepX,
+			y : sepY
+		};
+
+		var velAli = {
+			x : numAlignment == 0 ? this.velocity.x : aliX / numAlignment,
+			y : numAlignment == 0 ? this.velocity.y : aliY / numAlignment
+		};
+
+		var modCoh = 0.5;
+		var modSep = 2;
+		var modAli = 15;
+
+		if (boidMode == boidModes.ATTRACT) {
+			modCoh *= 50;
+			modAli *= 0;
+		} else if (boidMode == boidModes.SCATTER) {
+			modCoh *= -50;
+			modAli *= 0;
+		}
+
+		// position boid wants to move to
+		this.target.x = this.position.x + (velCoh.x * modCoh + velSep.x * modSep + velAli.x * modAli);
+		this.target.y = this.position.y + (velCoh.y * modCoh + velSep.y * modSep + velAli.y * modAli);
+
+	}
+
+	this.move = function() {
+
+		this.positionHistory.push(
+			{ x : this.position.x, y : this.position.y }
+		);
+
+		this.lastPosition.x = this.position.x;
+		this.lastPosition.y = this.position.y;
+
+		var dx = this.target.x - this.position.x;
+		var dy = this.target.y - this.position.y;
+
+		var dist = sqrt(dx*dx + dy*dy);
+
+		var speed = Math.max(Math.min(dist, this.maxSpeed * ((boidMode == boidModes.SCATTER || boidMode == boidModes.ATTRACT) ? 2 : 1)), this.minSpeed);
+
+		var newRotation = this.rotation;
+		if (dx != 0 || dy != 0)
+			newRotation = atan2(dy, dx);
+
+		var difRotation = newRotation - this.rotation;
+		if (difRotation >= PI) difRotation -= PI2;
+		if (difRotation < -PI) difRotation += PI2;
+
+		var maxRotation = (boidMode == boidModes.SCATTER || boidMode == boidModes.ATTRACT) ? this.maxRotation * 1.5 : this.maxRotation;
+
+		var absDifRotation = difRotation;
+		if (absDifRotation < 0) absDifRotation = -absDifRotation;
+		if (absDifRotation >= maxRotation) {
+			difRotation = difRotation < 0 ? -maxRotation : maxRotation;
+		}
+		this.rotation += difRotation;
+
+		var dx = cos(this.rotation);
+		var dy = sin(this.rotation);
+
+		this.velocity.x = speed * dx;
+		this.velocity.y = speed * dy;
+
+		this.position.x += this.velocity.x;
+		this.position.y += this.velocity.y;
+
+		this.speed = speed;
+
+		var collide = false;
+		if (this.position.x < 0) {
+			this.position.x = 0;
+			this.velocity.x = -this.velocity.x;
+			collide = true;
+		}
+		if (this.position.x > screenWidth) {
+			this.position.x = screenWidth;
+			this.velocity.x = -this.velocity.x;
+			collide = true;
+		}
+		if (this.position.y < 20) {
+			this.position.y = 20;
+			this.velocity.y = -this.velocity.y;
+			collide = true;
+		}
+		if (this.position.y > screenHeight) {
+			this.position.y = screenHeight;
+			this.velocity.y = -this.velocity.y;
+			collide = true;
+		}
+		if (collide)
+			this.rotation = atan2(this.velocity.y, this.velocity.x);
+	}
+}
+
+function Flock(numBoids) {
+	this.boids = [];
+	for (var i=0;i<numBoids;i++) {
+		this.boids.push(
+			new Boid(
+				screenWidth * random(),
+				screenHeight * random(),
+				random(),
+				random()
+			)
+		);
+	}
+
+	this.addBoid = function() {
+		this.boids.push(
+			new Boid(
+				screenWidth * random(),
+				screenHeight * random(),
+				random(),
+				random()
+			)
+		);
+	}
+
+	this.step = function() {
+		for (var i=0,l=this.boids.length;i<l;i++) {
+			this.boids[i].react(this.boids);
+		}
+		for (var i=0,l=this.boids.length;i<l;i++) {
+			this.boids[i].move();
+		}
+	}
+
+}
+
+
+function render(boids) {
+	ctx.clearRect(0,0,screenWidth,screenHeight);
+	ctx.lineWidth = 0.7;
+
+
+	if (!(music && musicLoaded))
+		return;
+
+	if (settings.drawWaveform) {
+		if (settings.drawWaveformEcho && waveDataLast) {
+			ctx.beginPath();
+			ctx.strokeStyle = "rgba(0,0,0,0.3)";
+			var step = 16;
+			for (var i=0;i<256;i+=step) {
+				var l = (i/(256-step)) * screenWidth;
+				var t = (20 + waveDataLast[i] * 10);
+				if (i==0) {
+					ctx.moveTo(l,t);
+				} else {
+					ctx.lineTo(l,t);
+				}
+			}
+			ctx.stroke();
+		}
+		if (waveData && waveData.length) {
+			waveDataLast = waveData;
+
+			ctx.beginPath();
+			ctx.strokeStyle = "black";
+			var step = 8;
+
+			var posStep = (music.position / music.durationEstimate * 256) >> 0;
+
+			for (var i=0;i<256;i+=step) {
+				var l = (i/(256-step)) * screenWidth;
+				var t = (20 + waveData[i] * 10);
+				if (i==0) {
+					ctx.moveTo(l,t);
+				} else {
+					ctx.lineTo(l,t);
+				}
+			}
+			ctx.stroke();
+
+			var l = (posStep/(255)) * screenWidth;
+			var t = (20 + waveData[posStep] * 10);
+			ctx.fillRect(l-2,t-2,4,4);
+
+
+		}
+	}
+
+	if (settings.drawBinaryValues) {
+		var binaryText = "";
+		var sec = (music.position/1000)>>0;
+		for (var i=0;i<16;i++) {
+			var binary = ((eqValues16[i]*16)>>0).toString(2);
+			while (binary.length < 8) binary = "0" + binary;
+			binaryText += binary;
+
+			if (lyricsBySec[sec] && random() < 1/16)
+				binaryText += " " + lyricsBySec[sec];
+
+			binaryText += "<br/>";
+		}
+		binaryCtr.innerHTML = binaryText;
+	}
+
+	if (settings.drawBoids) {
+		if (settings.drawBoidTails) {
+			if (boids.length > 0) {
+				var numTrail = 4;
+				var alpha = 1;
+				for (var p=0;p<numTrail;p++) {
+					ctx.strokeStyle = "rgba(0,0,0," + alpha + ")";
+					ctx.lineWidth = 0.5;
+					ctx.beginPath();
+		
+					for (var i=0,l=boids.length;i<l;i++) {
+						var boid = boids[i];
+						var numPos = boid.positionHistory.length;
+		
+						var pos = boid.positionHistory[numPos - p - 1];
+						var pos2 = boid.positionHistory[numPos - p - 2]
+						if (pos && pos2) {
+							ctx.moveTo(pos.x, pos.y);
+							ctx.lineTo(pos2.x, pos2.y);
+						}
+					}
+					ctx.stroke();
+					alpha *= 0.6;
+				}
+			}
+		}
+
+			
+		ctx.strokeStyle = "rgba(0,0,0,0.6)";
+		ctx.lineWidth = 0.5;
+	
+		ctx.beginPath();
+	
+		for (var i=0,l=boids.length;i<l;i++) {
+			var boid = boids[i];
+	
+			var x = boid.position.x;
+			var y = boid.position.y;
+			var lastX = boid.lastPosition.x;
+			var lastY = boid.lastPosition.y;
+	
+			ctx.moveTo(x,y);
+
+			if (settings.drawBoidHeads) {
+				ctx.arc(x, y, 3, 0, PI2, false)
+			}
+	
+			var dataX = (x / 2) >> 0;
+			var dataY = (y / 2) >> 0;
+			if (dataX < 0) dataX = 0; if (dataX > 200-1) dataX = 200 - 1;
+			if (dataY < 0) dataY = 0; if (dataY > 200-1) dataY = 200 - 1;
+
+			var color = thomData[dataY * 200 + dataX];
+
+			permCtx.lineWidth = 0.7 + 0.5 * (1 - color/255);
+			permCtx.strokeStyle = "rgba(" + color + "," + color + "," + color + ",0.15)";
+	
+			permCtx.beginPath();
+			permCtx.moveTo(lastX, lastY);
+			permCtx.lineTo(x, y);
+			permCtx.stroke();
+	
+			if (settings.drawBoidConnections && (attract || scatter)) {
+				var nearOther = boid.nearestOther;
+	
+				if (nearOther != boid.nearestDraw) {
+					var nearX = nearOther.position.x>>0;
+					var nearY = nearOther.position.y>>0;
+					var nearLastX = nearOther.lastPosition.x;
+					var nearLastY = nearOther.lastPosition.y;
+		
+					ctx.lineTo(nearX, nearY);
+					ctx.lineTo(nearLastX, nearLastY);
+					ctx.lineTo(lastX, lastY);
+					ctx.lineTo(x, y);
+		
+					if (attract) {
+						permCtx.fillStyle = "rgba(" + color + "," + color + "," + color + ",0.05)";
+
+						permCtx.lineTo(lastX, lastY);
+						permCtx.lineTo(nearLastX, nearLastY);
+						permCtx.lineTo(nearX, nearY);
+						permCtx.lineTo(x, y);
+						permCtx.fill();
+					}
+				} else {
+					nearOther.nearestDraw = boid;
+					boid.nearestDraw = nearOther;
+				}
+			}
+	
+		}
+		ctx.stroke();
+	}
+
+	if (settings.drawFreqBars) {
+		if (settings.drawFreqBarsEcho && eqBarValuesLast) {
+			ctx.fillStyle = "rgba(0,0,0,0.2)";
+			ctx.beginPath();
+			for (var i=0;i<numEqBars;i++) {
+				var h = sqrt(eqBarValuesLast[i])*20;
+				var left = i * eqBarWidth + i * eqBarSpace;
+				ctx.rect(left+3,screenHeight-h,eqBarWidth-6,h);
+			}
+			ctx.fill();
+		}
+	
+		if (eqBarValues) {
+			eqBarValuesLast = eqBarValues;
+	
+			ctx.fillStyle = "rgba(0,0,0,0.5)";
+			ctx.beginPath();
+			for (var i=0;i<numEqBars;i++) {
+				var h = sqrt(eqBarValues[i])*20;
+				var left = i * eqBarWidth + i * eqBarSpace;
+				ctx.rect(left,screenHeight-h,eqBarWidth,h);
+
+				if (settings.drawFreqBarsLetters && activeText) {
+					ctx.drawImage(
+						activeText,
+						i*40,0,40,40,
+						left,screenHeight-h-letterSize,40,40
+					);
+				}
+	
+			}
+			ctx.fill();
+		}
+	}
+
+	if (settings.drawFaceImage && music && music.position > 0) {
+		var opacity = 0.4 * music.position / music.durationEstimate;
+		if (opacity < thomImg.style.opacity)
+			thomImg.style.opacity = opacity;
+	}
+
+}
+
+function init() {
+
+	binaryCtr = $("binarycontainer");
+	lyricsCtr = $("lyricscontainer");
+
+	canvas = $("screen");
+	canvas.width = screenWidth;
+	canvas.height = screenHeight;
+	canvas.style.width = screenWidth + "px";
+	canvas.style.height = screenHeight + "px";
+	ctx = canvas.getContext("2d");
+
+	permCanvas = $("permscreen");
+	permCanvas.width = screenWidth;
+	permCanvas.height = screenHeight;
+	permCanvas.style.width = screenWidth + "px";
+	permCanvas.style.height = screenHeight + "px";
+	permCtx = permCanvas.getContext("2d");
+
+	thomImg = $("thom");
+
+	if (thomData) {
+		var tmpData = thomData;
+		thomData = [];
+		for (var i=0;i<tmpData.length;i++) {
+			thomData.push(thomColors[tmpData[i]]);
+		}
+	}
+
+	var textImg = $("text-radiohead");
+	var textImg2 = $("text-idioteque");
+	textCanvas = document.createElement("canvas");
+	textCanvas2 = document.createElement("canvas");
+	textCanvas.width = textCanvas2.width = 360;
+	textCanvas.height = textCanvas2.height = 40;
+	textCanvas.getContext("2d").drawImage(textImg,0,0);
+	textCanvas2.getContext("2d").drawImage(textImg2,0,0);
+
+	$("inputlayer").onclick = function(e) {
+		if (music && music.playState) {
+			var y = e.clientY - $("main").offsetTop;
+			var x = e.clientX - $("main").offsetLeft;
+			if (y > 15 && y < 30) {
+				if (music.bytesLoaded == music.bytesTotal) {
+					music.setPosition(((x / screenWidth) * music.duration)>>0);
+				}
+			} else {
+				if (!paused) {
+					paused = true;
+					music.togglePause();
+				} else {
+					music.togglePause();
+					paused = false;
+				}
+			}
+		}
+	}
+
+	flock = new Flock(0);
+
+	setInterval(
+		function() {
+			if (paused) return;
+
+			flock.step();
+			render(flock.boids);
+		}, 1000 / 20
+	);
+}
+
+window.onload = init;
+
+})();
+
+</script>
+
+
+</head>
+<body>
+
+<div id="main" style="position:relative;border:1px solid black;width:400px;height:400px;">
+	<img src="thomyorke_posterized_9col.png" id="thom">
+	<canvas id="permscreen"></canvas>
+	<canvas id="screen"></canvas>
+	<div style="position:absolute;" id="binarycontainer"></div>
+	<div style="position:absolute;" id="lyricscontainer"></div>
+	<div id="inputlayer"></div>
+	<div id="creditlayer">A [ <a href="http://www.radiohead.com/" target="_blank">Radiohead</a> / <a href="http://en.wikipedia.org/wiki/JavaScript" target="_blank">JavaScript</a> / <a href="http://www.red3d.com/cwr/boids/" target="_blank">Boids</a> / <a href="http://www.whatwg.org/specs/web-apps/current-work/multipage/the-canvas-element.html" target="_blank">Canvas</a> / <a href="http://schillmania.com/projects/soundmanager2/" target="_blank">SM2</a> ] mashup by <a href="http://blog.nihilogic.dk/" target="_blank">Jacob Seidelin</a></div>
+	<div id="loader"><div id="loaderfill"></div></div>
+	<div id="buglayer">No waveData - Check for open YouTube tabs!</div>
+</div>
+<div style="margin: 0 auto;width:400px;font-size:11px;font-family:verdana;">
+<a href="http://blog.nihilogic.dk/2009/03/music-visualization-with-canvas-and.html">Read the blog post for more information</a>
+</div>
+
+<img src="radiohead_25.png" style="display:none;" id="text-radiohead"/>
+<img src="idioteque_25.png" style="display:none;" id="text-idioteque"/>
+
+<script src="http://78535.hittail.com/mlt.js" type="text/javascript"></script>
+
+</body>
+</html>
